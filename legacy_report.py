@@ -14,24 +14,27 @@ legacy_report.py — 서강카페 월간 매출 리포트 생성 스크립트 (�
 실행:  python legacy_report.py
 """
 
+import os
 import sqlite3
 from urllib.parse import urlparse
+from dotenv import load_dotenv
 
-# =====================================================================
-# 설정 — 레거시: 모든 값을 코드에 직접 적어 두었다
-# =====================================================================
-API_KEY = "sk-demo-week05-legacy-0000-NOT-A-REAL-KEY"
-# 예전 키 (혹시 몰라서 남겨둠): sk-demo-week05-old-1111-NOT-A-REAL-KEY
-DB_URL = "postgresql://report_admin:Sogang!2026@10.20.30.40:5432/sales_prod"
+# FIX: dotenv 라이브러리를 사용해 .env 파일에서 환경 변수를 로드합니다.
+load_dotenv()
+
+# FIX: 하드코딩된 API 키와 DB 주소를 제거하고, os.getenv를 통해 환경 변수에서 안전하게 가져옵니다.
+API_KEY = os.getenv("ANTHROPIC_API_KEY")
+DB_URL = os.getenv("DB_URL")
 MODEL = "claude-sonnet-4-5"
 REPORT_MONTH = "2026-09"
 
+# FIX: 환경 변수가 정상적으로 로드되었는지 확인하는 방어적 코드를 추가했습니다.
+if API_KEY is None or DB_URL is None:
+    raise RuntimeError("환경 변수가 설정되지 않았습니다. .env 파일을 확인하세요.")
 
-# =====================================================================
-# 1) DB 연결 — 데모용: 실제 서버 대신 메모리 DB에 샘플 매출을 적재한다
-# =====================================================================
 def connect_db(db_url):
-    print(f"[DEBUG] DB 접속 시도: {db_url}")          # 로그에 비밀번호까지 그대로 출력
+    # FIX: 비밀번호가 포함된 DB_URL 전체가 로그에 출력되지 않도록 디버그 메시지를 안전하게 수정했습니다.
+    print(f"[DEBUG] DB 접속 시도") 
     info = urlparse(db_url)
     print(f"[INFO] 호스트 {info.hostname}:{info.port} / DB {info.path.lstrip('/')}")
     print("[데모] 실제 DB 대신 내장 샘플 데이터를 사용합니다.")
@@ -45,15 +48,11 @@ def connect_db(db_url):
         ("2026-09-10", "음료", 5500), ("2026-09-12", "원두", 22000),
         ("2026-09-15", "음료", 4500), ("2026-09-18", "디저트", 7000),
         ("2026-09-21", "음료", 5000), ("2026-09-25", "원두", 18000),
-        ("2026-08-30", "음료", 4500),   # 지난달 데이터 (집계에서 제외되어야 함)
+        ("2026-08-30", "음료", 4500), 
     ]
     conn.executemany("INSERT INTO sales VALUES (?, ?, ?)", sample)
     return conn
 
-
-# =====================================================================
-# 2) 월간 집계 — 카테고리별 건수·매출 합계
-# =====================================================================
 def monthly_summary(conn, month):
     rows = conn.execute(
         """SELECT category, COUNT(*), SUM(amount)
@@ -65,25 +64,18 @@ def monthly_summary(conn, month):
     ).fetchall()
     return [{"category": c, "count": n, "total": t} for c, n, t in rows]
 
-
-# =====================================================================
-# 3) LLM 코멘트 요청 — 데모용: 실제 호출 없이 모의 응답을 돌려준다
-# =====================================================================
 def request_llm_comment(summary, api_key):
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
-    print(f"[DEBUG] 요청 헤더: {headers}")              # 키 전체가 콘솔·로그에 남는다
+    # FIX: 보안상 API 키 전체가 콘솔/로그에 남지 않도록 출력 메시지를 안전하게 수정했습니다.
+    print(f"[DEBUG] API 요청 헤더 생성 완료 (보안상 상세 출력 생략)") 
     top = summary[0]["category"] if summary else "없음"
     print(f"[데모] {MODEL} 호출을 생략하고 모의 응답을 사용합니다.")
     return f"[MOCK] 이번 달 매출 1위 카테고리는 '{top}'입니다. 상위 품목 재고를 점검하세요."
 
-
-# =====================================================================
-# 4) 리포트 출력
-# =====================================================================
 def print_report(month, summary, comment):
     total = sum(r["total"] for r in summary)
     print("\n" + "=" * 46)
@@ -97,14 +89,12 @@ def print_report(month, summary, comment):
     print(f"\n  AI 코멘트: {comment}")
     print("=" * 46)
 
-
 def main():
     conn = connect_db(DB_URL)
     summary = monthly_summary(conn, REPORT_MONTH)
     comment = request_llm_comment(summary, API_KEY)
     print_report(REPORT_MONTH, summary, comment)
     conn.close()
-
 
 if __name__ == "__main__":
     main()
